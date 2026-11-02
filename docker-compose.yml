@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: threats
+      POSTGRES_USER: threats
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set to a random secret}"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U threats -d threats"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      HTTP_ADDRESS: :8080
+      # sslmode=disable is acceptable only because PostgreSQL is reachable solely on the
+      # private Compose network; use sslmode=verify-full for an external database.
+      DATABASE_URL: postgres://threats:${POSTGRES_PASSWORD}@postgres:5432/threats?sslmode=disable
+      API_KEY: "${API_KEY:?API_KEY must be set to a random secret}"
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-60}
+      RATE_LIMIT_BURST: ${RATE_LIMIT_BURST:-10}
+      REQUIRE_API_KEY_FOR_READS: ${REQUIRE_API_KEY_FOR_READS:-false}
+      REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-5s}
+      DB_MAX_CONNS: 10
+      DB_MIN_CONNS: 1
+      DB_MAX_CONN_LIFETIME: 1h
+      DB_MAX_CONN_IDLE_TIME: 30m
+      DB_HEALTH_CHECK_PERIOD: 1m
+    ports:
+      # Published on loopback only; put a TLS-terminating proxy in front for remote access.
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/healthz | grep -q '\"status\":\"ok\"'"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

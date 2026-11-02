@@ -1,0 +1,9 @@
+.git
+.gitignore
+.env
+bin
+coverage.out
+*.test
+.idea
+.vscode
+.DS_Store

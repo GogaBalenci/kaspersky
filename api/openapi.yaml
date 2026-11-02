@@ -1,0 +1,301 @@
+openapi: 3.0.3
+info:
+  title: Threat Information Exchange Service
+  version: 1.0.0
+  description: REST API for storing and exchanging enriched information about file threats.
+servers:
+  - url: http://localhost:8080
+paths:
+  /info:
+    post:
+      operationId: createThreat
+      summary: Create a threat
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThreatCreateRequest'
+      responses:
+        '201':
+          description: Threat created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreatResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: A threat with this MD5 already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /info/{md5}:
+    parameters:
+      - $ref: '#/components/parameters/Md5'
+    get:
+      operationId: getThreatByMD5
+      summary: Get a threat by MD5
+      description: >-
+        Public by default. When the service runs with REQUIRE_API_KEY_FOR_READS=true,
+        the X-API-Key header is required and 401 is returned without it.
+      security:
+        - {}
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Threat found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreatResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Threat not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      operationId: updateThreat
+      summary: Replace mutable threat data
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThreatUpdateRequest'
+      responses:
+        '200':
+          description: Threat updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreatResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Threat not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /healthz:
+    get:
+      operationId: healthCheck
+      summary: Check service availability
+      responses:
+        '200':
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: A dependency is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  parameters:
+    Md5:
+      name: md5
+      in: path
+      required: true
+      description: MD5 hash of a file, normalized to lowercase by the service.
+      schema:
+        $ref: '#/components/schemas/MD5'
+  responses:
+    BadRequest:
+      description: Request data is invalid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: API key is absent or invalid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    TooManyRequests:
+      description: The rate limit has been exceeded.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: An unexpected internal error occurred.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    MD5:
+      type: string
+      pattern: '^[a-fA-F0-9]{32}$'
+      example: d41d8cd98f00b204e9800998ecf8427e
+    Severity:
+      type: string
+      enum: [low, medium, high, critical]
+    ThreatType:
+      type: string
+      enum: [trojan, ransomware, worm, adware, spyware, other]
+    ThreatCreateRequest:
+      type: object
+      description: >-
+        Only md5 and name are required, as in the original contract. When omitted,
+        type defaults to "other" and severity defaults to "medium".
+      additionalProperties: false
+      required: [md5, name]
+      properties:
+        md5:
+          $ref: '#/components/schemas/MD5'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          example: Trojan.Win32.Generic
+        type:
+          $ref: '#/components/schemas/ThreatType'
+        severity:
+          $ref: '#/components/schemas/Severity'
+        description:
+          type: string
+          maxLength: 4000
+        tags:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+        first_seen_at:
+          type: string
+          format: date-time
+          description: Must be between 1970-01-01T00:00:00Z and the current time plus 24 hours.
+        last_seen_at:
+          type: string
+          format: date-time
+          description: Must be between 1970-01-01T00:00:00Z and the current time plus 24 hours.
+    ThreatUpdateRequest:
+      type: object
+      description: >-
+        Replaces all mutable fields. Only name is required, as in the original contract.
+        Omitted optional fields are reset: type to "other", severity to "medium",
+        description, tags and seen timestamps to empty values.
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        type:
+          $ref: '#/components/schemas/ThreatType'
+        severity:
+          $ref: '#/components/schemas/Severity'
+        description:
+          type: string
+          maxLength: 4000
+          nullable: true
+        tags:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+        first_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+    ThreatResponse:
+      type: object
+      additionalProperties: false
+      required: [md5, name, type, severity, tags, created_at, updated_at]
+      properties:
+        md5:
+          $ref: '#/components/schemas/MD5'
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/ThreatType'
+        severity:
+          $ref: '#/components/schemas/Severity'
+        description:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+        first_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message:
+          type: string
+          example: threat not found
+        details:
+          type: string
+          nullable: true
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
